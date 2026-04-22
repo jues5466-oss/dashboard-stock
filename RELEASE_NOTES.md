@@ -275,3 +275,20 @@ bash nightly_stock_v1_01.sh
 0 2 * * * cd /Users/jues/.openclaw/dashboard-stock && ./nightly_stock_v1_01.sh >> /tmp/stock_nightly.log 2>&1
 ```
 
+
+---
+
+## v2.2 更新日誌 (2026-04-22)
+
+### 版本狀態
+- 與 v3.0 (`dashboard_live.py`) 相同
+- 大小：19,577 bytes
+- 日期：2026-04-22 14:17
+
+### 主要功能
+- 📦 我的庫存功能
+- 📊 信號來源選擇 (signal_t86/summary)
+- 🏷️ 股票中文顯示
+- 📖 指標說明
+- ⚙️ 預設指標 (KD/RSI/MACD/Williams)
+
