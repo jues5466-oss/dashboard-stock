@@ -242,3 +242,36 @@ Ass 抓取 → my_stocks.csv
     ↓
 產生買點 → signal_t86_*.csv / summary_*.csv
 ```
+
+---
+
+## v1.01 Stock Strategy 更新日誌 (2026-04-22 補推)
+
+### 新增腳本
+
+| 腳本 | 用途 |
+|------|------|
+| nightly_stock_v1_01.sh | 每夜自動跑策略生成 + 回測 |
+| make_stock_strategy_v1_01.py | 根據 deepseek 給的規則動態生成策略程式 |
+
+### nightly_stock_v1_01.sh 功能
+- 呼叫 deepseek API 取得成功規則（RULE）
+- 動態生成 stock_strategy_v1_01.py
+- 回測指定股票（0056.TW）
+- 產出 runs.jsonl + summary.md
+- 記錄每日 proposal 到 `/Volumes/AI_Drive/AI_Workspace/openclaw_design/stock_strategy/v1.01/proposals/`
+
+### 依賴
+- Python venv: `~/.venv/bin/python`
+- 資料路徑: `/Volumes/AI_Drive/StockData/`
+- AI API: deepseek v1_01 success rule
+
+### 使用方式
+```bash
+# 手動執行
+bash nightly_stock_v1_01.sh
+
+# 或設定 cron 自動跑
+0 2 * * * cd /Users/jues/.openclaw/dashboard-stock && ./nightly_stock_v1_01.sh >> /tmp/stock_nightly.log 2>&1
+```
+
