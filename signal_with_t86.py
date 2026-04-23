@@ -82,7 +82,7 @@ def main():
     
     # 读取法人买卖超
     print("\n读取法人买卖超...")
-    t86_file = f"{T86_DIR}/t86_{latest_date.replace('-','')}.csv"
+    t86_file = f"{T86_DIR}/t86_{str(latest_date).replace('-','')}.csv"
     if os.path.exists(t86_file):
         t86_df = pd.read_csv(t86_file)
         print(f"法人买卖超: {len(t86_df)} 檔")
@@ -92,7 +92,7 @@ def main():
     
     # 合并
     print("\n合并资料...")
-    merged = indicators_df.merge(t86_df[['code', 'foreign_net', 'prop_net', 'dealer_net', 'total_net']], on='code', how='left')
+    merged = indicators_df.merge(t86_df.assign(code=t86_df['code'].astype(str))[['code', 'foreign_net', 'prop_net', 'dealer_net', 'total_net']], on='code', how='left')
     merged['total_net'] = pd.to_numeric(merged['total_net'], errors='coerce').fillna(0)
     merged['foreign_net'] = pd.to_numeric(merged['foreign_net'], errors='coerce').fillna(0)
     
@@ -165,7 +165,7 @@ def main():
     print(result['recommendation'].value_counts())
     
     # 储存
-    out_file = f"{SIGNALS_DIR}/signal_t86_{latest_date.replace('-','')}.csv"
+    out_file = f"{SIGNALS_DIR}/signal_t86_{str(latest_date).replace('-','')}.csv"
     result.to_csv(out_file, index=False)
     print(f"\n已储存: {out_file}")
 
