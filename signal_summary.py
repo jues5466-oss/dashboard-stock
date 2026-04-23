@@ -149,7 +149,7 @@ def generate_summary(date_str=None):
     # 产出 signal_t86_*.csv
     # signal_out (skip)
     # df.to_csv(signal_out, index=False)  # skip
-    print(f'\n已产出: {signal_out}')
+    print(f'\n已产出: {len(signal_list)} 筆')
     
     # 产出 summary_*.csv
     rec_order = {'strong_buy': 0, 'buy': 1, 'skip': 2}
