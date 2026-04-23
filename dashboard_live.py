@@ -19,7 +19,7 @@ def fetch_stock(code, period='1y'):
     OHLC_FILE = f'{STOCK_DATA_DIR}/monthly_data/ohlc_full.csv'
     if os.path.exists(OHLC_FILE):
         df = pd.read_csv(OHLC_FILE, low_memory=False)
-        df['Date'] = pd.to_datetime(df['date'], format='mixed')
+        df['Date'] = pd.to_datetime(df['date'], format='%Y%m%d')
         df = df[df['code'].astype(str) == code].sort_values('Date').tail(200)
         if len(df) > 50:
             return df.reset_index(drop=True)
