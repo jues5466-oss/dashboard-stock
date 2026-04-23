@@ -73,7 +73,7 @@ else:
 # === OHLC (股價) ===
 try:
     existing = pd.read_csv(OHLC_FILE, low_memory=False)
-    existing['date'] = pd.to_datetime(existing['date'], format='mixed')
+    existing['date'] = pd.to_datetime(existing['date'], format='%Y%m%d')
     last_date = existing['date'].max()
 except:
     last_date = datetime(2020, 1, 1)
@@ -103,6 +103,8 @@ if len(dates) > 0:
     if new_data:
         new_df = pd.DataFrame(new_data)
         combined = pd.concat([existing, new_df], ignore_index=True)
+        # Deduplicate before saving
+        combined = combined.drop_duplicates(subset=["code", "date"], keep="first")
         combined.to_csv(OHLC_FILE, index=False)
         print(f"  新增 {len(new_df)} 筆")
 else:
