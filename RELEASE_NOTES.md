@@ -16,7 +16,8 @@
 
 | 版本 | 檔案 | 大小 | 日期 | 狀態 |
 |------|------|------|------|------|
-| **v2.3 (最新)** | dashboard_live.py | ~24KB | 2026-04-27 | ✅ 使用中 |
+| **v2.4 (最新)** | dashboard_live.py | ~47KB | 2026-05-06 | ✅ 使用中 |
+| v2.3 | dashboard_live_v2_3.py | ~24KB | 2026-04-27 | 備份 |
 | v2.2 | dashboard_live_v2_2.py | 19,577 | 2026-04-22 | 備份 |
 | v2.1 | dashboard_live_v2_1.py | 17,645 | 2026-04-22 | 棄用 |
 | v2.0 | dashboard_live_1.py | 13,999 | 2026-04-15 | 棄用 |
@@ -26,7 +27,7 @@
 
 ## 功能比較
 
-| 功能 | v2.3 | v2.2 | v2.1 | v2.0 |
+| 功能 | v2.4 | v2.3 | v2.2 | v2.1 |
 |------|------|------|------|------|
 | 基本技術線圖 | ✅ | ✅ | ✅ | ✅ |
 | 法人買賣超 | ✅ | ✅ | ✅ | ✅ |
@@ -37,10 +38,13 @@
 | 我的庫存選單 | ✅ | ✅ | ❌ | ❌ |
 | 庫存一鍵分析 | ✅ | ✅ | ❌ | ❌ |
 | 預設勾選指標 | ✅ | ✅ | ❌ | ❌ |
-| **DMI 指標** | ✅ | ❌ | ❌ | ❌ |
-| **K線型態標記** | ✅ | ❌ | ❌ | ❌ |
-| **成交量子圖 (MA5)** | ✅ | ❌ | ❌ | ❌ |
-| **效能優化 (快取)** | ✅ | ❌ | ❌ | ❌ |
+| **DMI 指標** | ✅ | ✅ | ❌ | ❌ |
+| **K線型態標記** | ✅ | ✅ | ❌ | ❌ |
+| **成交量子圖 (MA5)** | ✅ | ✅ | ❌ | ❌ |
+| **效能優化 (快取)** | ✅ | ✅ | ❌ | ❌ |
+| **錢線百分百日期切換** | ✅ | ❌ | ❌ | ❌ |
+| **錢線百分百股票連結** | ✅ | ❌ | ❌ | ❌ |
+| **Discord 摘要通知** | ✅ | ❌ | ❌ | ❌ |
 
 ### 使用的資料來源
 - 股價數據：`/Volumes/AI_Drive/StockData_v2/data/daily_data/`
@@ -48,6 +52,44 @@
 - 庫存：`/Volumes/AI_Drive/StockData_v2/data/my_stocks.csv`
 - 信號舊：`/Volumes/AI_Drive/StockData_v2/data/signals/signal_t86_*.csv`
 - 信號新：`/Volumes/AI_Drive/StockData_v2/data/signals/summary_*.csv`
+- 錢線字幕：`/Volumes/AI_Drive/StockData_v2/data/money100/subs/*.vtt`
+- 錢線股票表：`/Volumes/AI_Drive/StockData_v2/data/money100/mentioned_stocks_v2.csv`
+
+---
+
+## v2.4 更新日誌 (2026-05-06)
+
+### 新增功能
+- 🎬 **錢線百分百 YouTube 字幕自動化**
+  - `fetch_money100.py`：自動下載字幕 VTT 檔
+  - `parse_money100.py`：Gemini AI 章節摘要 + 關鍵字股票解析
+  - 字幕上傳時間：22:35（上集）/ 23:05（中集）/ 23:35（下集），建議 23:40 統一解析
+  - 頻道：錢線百分百（YouTube Channel ID: 1493629294591737946）
+  - Gemini 模型：`gemini-flash-latest`（其他模型對此 API Key 無免費額度）
+  - 解析策略：關鍵字解析（永不漏接）+ Gemini 分段摘要（每段 12000 字，只做章節總結）
+
+- 📺 **錢線百分百 Dashboard 面板（v2.4）**
+  - 底部固定區塊：日期按鈕（最近 4 天） + 該日所有股票列表
+  - 股票連結：點股票名稱直接跳到該檔技術分析圖
+  - 欄位：族群 / 代碼 / 名稱 / 分析師 / 位階 / 理由
+  - 分析師名單：冠嶔、奎國、慶龍、奇琛（主持人：劉祝華）
+  - 資料格式：`data/money100/mentioned_stocks_v2.csv`（取代舊版 mentioned_stocks.csv）
+
+- 🔔 **Discord 摘要通知**
+  - 每晚 23:40 parse 完成後自動發送 Discord Webhook
+  - 格式：完整分析師觀點（非精簡摘要）、選股表格（族群|標的|分析師|理由）
+  - Webhook：`https://discord.com/api/webhooks/1500875786759180419/...`
+
+### 修复
+- `invalid index to scalar variable` — numpy scalar 無法切片，全面改用 `str()` 轉換
+- macOS GUI wrapper 問題 — subprocess 使用 `Python.app` 而非 venv python，已接受（功能正常）
+- Streamlit button key 含 `/` 導致崩潰 — key 改為純數字字串
+
+### 技術細節
+- Dashboard 啟動：`/Volumes/AI_Drive/Python/venv/bin/python -c "import sys; sys.argv=['streamlit','run','dashboard_live.py','--server.headless','true','--server.port','8503']; from streamlit.web.cli import main; main()"`
+- Dashboard URL：`http://17.0.0.56:8503`
+- VTT 字幕長度：約 17000 字（需分 2 段 Gemini 處理）
+- CSV 格式：`date, code, name, category, analyst, position, reason`（無 description 欄位）
 
 ---
 
@@ -252,6 +294,10 @@ StockData_v2/
 | 平日 20:00 | `daily_update.py` | 更新股價 + T86 |
 | 平日 21:00 | `signal_with_t86.py` | 法人訊號分析 |
 | 平日 21:10 | `signal_summary.py` | 買點訊號摘要 |
+| 平日 23:40 | `fetch_money100.py` + `parse_money100.py` | 錢線百分百字幕下載 + AI 解析 |
+| 週一至週五 22:35 | `fetch_money100.py`（上集字幕上傳） | 錢線百分百上集 |
+| 週一至週五 23:05 | `fetch_money100.py`（中集字幕上傳） | 錢線百分百中集 |
+| 週一至週五 23:35 | `fetch_money100.py`（下集字幕上傳） | 錢線百分百下集 |
 
 ### Hermes Cron Jobs
 
@@ -260,11 +306,32 @@ StockData_v2/
 | 平日 21:00 | 啟動 Streamlit Dashboard |
 | 每日 02:00 | 關閉 Streamlit Dashboard |
 | 每日 03:00 | 備份 Hermes 設定檔 |
+| 平日 23:40 | 錢線百分百：下載字幕 → Gemini 解析 → Discord 摘要通知 |
+
+### 錢線百分百 字幕 Pipeline 流程
+
+```
+1. 22:35/23:05/23:35 → fetch_money100.py 下載 VTT（3集分開下）
+2. 23:40 → parse_money100.py 統一解析
+   a. 關鍵字股票解析 → mentioned_stocks_v2.csv（永遠不漏）
+   b. Gemini AI 章節摘要 → episode_summary/*.md
+   c. 完整分析師觀點 → Discord Webhook 通知
+3. Dashboard 自動讀取 mentioned_stocks_v2.csv → 底部面板呈現
+```
+
+### Gemini API 配置
+
+| 項目 | 值 |
+|------|------|
+| API Key | `AIzaSyD9AqB6hQYeW94iEo759QbHqcAq3syon8Q` |
+| 模型 | `gemini-2.0-flash`（gemini-flash-latest alias） |
+| 備註 | `gemini-2.0-flash` / `1.5-flash` 對此 key 無免費額度，會 429/404 |
+| 切片大小 | 每段 12000 字（VTT 約 17000 字，分 2 段） |
 
 ---
 
 ## GitHub
 
 - **Repo：** `https://github.com/jues5466-oss/dashboard-stock`
-- **main 分支：** v2.3 最新架構
+- **main 分支：** v2.4 最新架構（錢線百分百自動化）
 - **v2.2 分支：** v2.2 備份

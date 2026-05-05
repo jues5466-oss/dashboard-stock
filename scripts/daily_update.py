@@ -56,7 +56,7 @@ if not dates_to_fetch:
     print("已是最新")
 else:
     print(f"抓取：{len(dates_to_fetch)} 天")
-    batch_size = 50
+    batch_size = 30
 
     for date in dates_to_fetch:
         date_str = date.strftime('%Y%m%d')
@@ -68,45 +68,84 @@ else:
             print(f"  {date_str}: 已有，略過")
             continue
 
-        # 批次下載股價（一次 50 檔）
+        # 批次下載股價
         all_rows = []
         start_str = date.strftime('%Y-%m-%d')
         end_str = (date + timedelta(days=1)).strftime('%Y-%m-%d')
 
         for i in range(0, len(codes), batch_size):
             batch = codes[i:i+batch_size]
-            tickers = [f"{c}.TW" for c in batch]
+            tickers_tw = [f"{c}.TW" for c in batch]
             try:
                 data = yf.download(
-                    tickers=tickers,
+                    tickers=tickers_tw,
                     start=start_str,
                     end=end_str,
                     progress=False,
                     group_by='ticker',
-                    threads=True
+                    threads=False
                 )
                 for code in batch:
                     try:
-                        ticker_data = data[code] if code in data.columns else data.xs(code, level=1, axis=1)
-                        if ticker_data is None or ticker_data.empty:
-                            continue
-                        row = ticker_data.iloc[0]
-                        if pd.isna(row['Close']):
-                            continue
-                        all_rows.append({
-                            'date': date_str,
-                            'code': code,
-                            'open': round(float(row['Open']), 2),
-                            'high': round(float(row['High']), 2),
-                            'low': round(float(row['Low']), 2),
-                            'close': round(float(row['Close']), 2),
-                            'volume': int(row['Volume'])
-                        })
+                        ticker_key = f'{code}.TW'
+                        use_two = False
+                        if ticker_key in data.columns:
+                            ticker_data = data[ticker_key]
+                            if ticker_data is None or ticker_data.empty:
+                                use_two = True
+                            else:
+                                row = ticker_data.iloc[0]
+                                if pd.isna(row['Close']):
+                                    use_two = True
+                                else:
+                                    all_rows.append({
+                                        'date': date_str,
+                                        'code': code,
+                                        'open': round(float(row['Open']), 2),
+                                        'high': round(float(row['High']), 2),
+                                        'low': round(float(row['Low']), 2),
+                                        'close': round(float(row['Close']), 2),
+                                        'volume': int(row['Volume'])
+                                    })
+                        else:
+                            use_two = True
+
+                        if use_two:
+                            # Fallback: 試 .TWO（上櫃/興櫃）
+                            try:
+                                data_two = yf.download(
+                                    f'{code}.TWO',
+                                    start=start_str,
+                                    end=end_str,
+                                    progress=False,
+                                    threads=False
+                                )
+                                if data_two.empty:
+                                    continue
+                                if isinstance(data_two.columns, pd.MultiIndex):
+                                    row_dict = {}
+                                    for col in data_two.columns.get_level_values(0).unique():
+                                        val = data_two[(col,)].iloc[0, 0]
+                                        row_dict[col.lower()] = val
+                                else:
+                                    row_dict = {col.lower(): data_two[col].iloc[0, 0] for col in data_two.columns}
+                                if pd.isna(row_dict.get('close')):
+                                    continue
+                                all_rows.append({
+                                    'date': date_str,
+                                    'code': code,
+                                    'open': round(float(row_dict.get('open', 0)), 2),
+                                    'high': round(float(row_dict.get('high', 0)), 2),
+                                    'low': round(float(row_dict.get('low', 0)), 2),
+                                    'close': round(float(row_dict['close']), 2),
+                                    'volume': int(row_dict.get('volume', 0))
+                                })
+                            except:
+                                continue
                     except:
                         continue
             except Exception as e:
                 print(f"  {date_str} batch {i//batch_size+1}: 下載失敗 - {e}")
-            # 避免 Yahoo 限速
             import time as time_module
             time_module.sleep(0.2)
 
