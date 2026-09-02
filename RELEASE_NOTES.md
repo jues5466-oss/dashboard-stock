@@ -323,7 +323,7 @@ StockData_v2/
 
 | 項目 | 值 |
 |------|------|
-| API Key | `AIzaSyD9AqB6hQYeW94iEo759QbHqcAq3syon8Q` |
+| API Key | `[YOUR_GEMINI_API_KEY]` |
 | 模型 | `gemini-2.0-flash`（gemini-flash-latest alias） |
 | 備註 | `gemini-2.0-flash` / `1.5-flash` 對此 key 無免費額度，會 429/404 |
 | 切片大小 | 每段 12000 字（VTT 約 17000 字，分 2 段） |
