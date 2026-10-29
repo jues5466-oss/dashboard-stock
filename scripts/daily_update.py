@@ -12,7 +12,47 @@ import pandas as pd
 from datetime import datetime, timedelta
 import yfinance as yf
 import urllib3
+import time
+import sys
 urllib3.disable_warnings()
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from trading_calendar import is_trading_day, holiday_reason
+
+# ── 看門狗 + 單例鎖 ─────────────────────────────────────────
+# 問題（2026/10/28 發現）：yfinance 偶發卡住不返回，daily_update.py 會無限
+# 停滯在背景，導致當日 CSV 永遠產生不出來（資料管線靜默斷掉）。
+# 對策：
+#   1) flock 單例鎖：避免 crontab 與 launchd 同時啟動兩個實例互相踩檔
+#   2) signal.alarm 看門狗：超過 MAX_RUNTIME 秒強制結束，避免殘留 process
+#   3) flush=True：Python 對 stdout 是 block-buffer，卡住時日誌看不到進度
+import fcntl
+import signal
+
+LOCK_FILE = '/tmp/stockdata_daily_update.lock'
+MAX_RUNTIME = 900  # 15 分鐘；正常流程約 60-90 秒
+
+_lock_fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR)
+try:
+    fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print(f"[{datetime.now()}] 已有另一個 daily_update.py 實例在執行，跳過本次更新。")
+    sys.exit(0)
+
+def _watchdog(signum, frame):
+    print(f"[{datetime.now()}] ⚠️ 超過 {MAX_RUNTIME}s 看門狗期限，強制結束（多半是 yfinance 卡住）。")
+    sys.stdout.flush()
+    os._exit(3)
+
+signal.signal(signal.SIGALRM, _watchdog)
+signal.alarm(MAX_RUNTIME)
+
+# stdout 在 redirect 到檔案時是 block-buffer，卡住時日誌看不到任何進度。
+# 改成 line-buffering，讓 cron/launchd 日誌即時反映進度。
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 # === 路徑設定 ===
 BASE_DIR = '/Volumes/AI_Drive/StockData_v2'
@@ -44,12 +84,15 @@ today = datetime.now()
 if today.weekday() >= 5:
     today = today - timedelta(days=1 if today.weekday() == 5 else 2)
 
-# 收集每個要抓的交易日
+# 收集每個要抓的交易日（休市日不抓，否則 yfinance 會回前一交易日資料造成假 CSV）
 dates_to_fetch = []
 d = last_date + timedelta(days=1)
 while d <= today:
-    if d.weekday() < 5:
+    if d.weekday() < 5 and is_trading_day(d.strftime('%Y-%m-%d')):
         dates_to_fetch.append(d)
+    else:
+        reason = holiday_reason(d.strftime('%Y-%m-%d')) or "週末"
+        print(f"  跳過 {d.strftime('%Y%m%d')}：{reason}")
     d += timedelta(days=1)
 
 if not dates_to_fetch:
@@ -83,7 +126,8 @@ else:
                     end=end_str,
                     progress=False,
                     group_by='ticker',
-                    threads=False
+                    threads=False,
+                    timeout=30
                 )
                 for code in batch:
                     try:
@@ -95,6 +139,10 @@ else:
                                 use_two = True
                             else:
                                 row = ticker_data.iloc[0]
+                                # 驗證列印日期確實是目標日；yfinance 在休市日會回前一交易日
+                                # 的資料，若不檢查就會寫出「假交易日 CSV」。
+                                if str(pd.Timestamp(row.name).strftime('%Y%m%d')) != date_str:
+                                    continue
                                 if pd.isna(row['Close']):
                                     use_two = True
                                 else:
@@ -118,9 +166,14 @@ else:
                                     start=start_str,
                                     end=end_str,
                                     progress=False,
-                                    threads=False
+                                    threads=False,
+                                    timeout=30
                                 )
                                 if data_two.empty:
+                                    continue
+                                # 同樣驗證日期，避免寫入前一交易日的資料
+                                idx_date = str(pd.Timestamp(data_two.index[0]).strftime('%Y%m%d'))
+                                if idx_date != date_str:
                                     continue
                                 if isinstance(data_two.columns, pd.MultiIndex):
                                     row_dict = {}
@@ -140,14 +193,13 @@ else:
                                     'close': round(float(row_dict['close']), 2),
                                     'volume': int(row_dict.get('volume', 0))
                                 })
-                            except:
+                            except Exception:
                                 continue
-                    except:
+                    except Exception:
                         continue
             except Exception as e:
                 print(f"  {date_str} batch {i//batch_size+1}: 下載失敗 - {e}")
-            import time as time_module
-            time_module.sleep(0.2)
+            time.sleep(0.2)
 
         if all_rows:
             df = pd.DataFrame(all_rows)
@@ -170,10 +222,10 @@ else:
                     if code.isdigit() and 4 <= len(code) <= 6:
                         t86_rows.append({
                             'code': code,
-                            'foreign_net': row[2].replace(',', ''),
-                            'prop_net': row[3].replace(',', ''),
-                            'dealer_net': row[4].replace(',', ''),
-                            'total_net': row[10].replace(',', '')
+                            'foreign_net': row[4].replace(',', ''),   # 外資+陸資 買賣超
+                            'prop_net': row[10].replace(',', ''),        # 投信 買賣超
+                            'dealer_net': row[11].replace(',', ''),      # 自營商 買賣超
+                            'total_net': row[18].replace(',', '')
                         })
                 if t86_rows:
                     t86 = pd.DataFrame(t86_rows)
@@ -189,7 +241,6 @@ else:
             print(f"  {date_str}: {len(df)} 筆記錄（T86 失敗: {e}）")
 
         df.to_csv(output_file, index=False)
-        import time as time_module
-        time_module.sleep(0.3)
+        time.sleep(0.3)
 
 print(f"\n[{datetime.now()}] === 更新完成 ===")

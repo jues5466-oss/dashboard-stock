@@ -1,2 +1,37 @@
-data/
-scripts/__pycache__/
+# ── 台股資料本體（任何機器都能重抓，不進版控）──
+# 例外：休市清單屬設定而非資料，必須進版控，否則其他機器會誤判為交易日
+data/*
+!data/market_holidays.json
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+
+# ── macOS ──
+.DS_Store
+
+# ── 日誌（launchd 已改寫到 /tmp，這裡是舊的）──
+logs/
+
+# ── 一次性腳本 / 暫存檔 / 備份 ──
+# 正式腳本請勿使用以下命名樣式，否則會被這裡忽略掉
+*.bak
+scripts/cron_prompt_*.txt
+scripts/cron_diagnostic.py
+scripts/fix_t86.py
+scripts/discord_send_34.py
+scripts/send_summary34.py
+scripts/send_discord_*.py
+scripts/send_d*.py
+scripts/send_money100_*.py
+scripts/send_summary_*.py
+scripts/resend_msg*.py
+scripts/update_csv_*.py
+scripts/update_csv.py
+scripts/update_m100_csv.py
+scripts/update_money100_csv.py
+scripts/money100_*.py
+scripts/extract_*.py
+scripts/read_*.py
+scripts/finalize_money100.py

@@ -12,6 +12,28 @@ import os
 import glob
 from datetime import datetime
 import numpy as np
+import fcntl, signal, os, sys
+
+# 看門狗 + 單例鎖（2026/10/28 加入）— 理由同 signal_with_t86.py
+_LOCK = '/tmp/stockdata_signal_summary.lock'
+_fd = os.open(_LOCK, os.O_CREAT | os.O_RDWR)
+try:
+    fcntl.flock(_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print('已有另一個訊號腳本實例在執行，跳過。')
+    sys.exit(0)
+
+def _wd(signum, frame):
+    print('⚠️ 超過 900s 看門狗期限，強制結束')
+    sys.stdout.flush()
+    os._exit(3)
+
+signal.signal(signal.SIGALRM, _wd)
+signal.alarm(900)
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 STOCK_DATA_DIR = '/Volumes/AI_Drive/StockData_v2/data'
 SIGNALS_DIR = f'{STOCK_DATA_DIR}/signals'
@@ -36,12 +58,15 @@ def calc_indicators(df):
     delta = df['close'].diff()
     gain = delta.where(delta > 0, 0).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    rs = gain / loss
+    rs = gain / loss.replace(0, np.nan)  # avoid division by zero
     df['RSI'] = 100 - (100 / (1 + rs))
+    df['RSI'] = df['RSI'].fillna(50)
 
     high14 = df['high'].rolling(14).max()
     low14 = df['low'].rolling(14).min()
-    df['Williams'] = -100 * (high14 - df['close']) / (high14 - low14)
+    Williams_denom = high14 - low14
+    Williams_denom = Williams_denom.replace(0, np.nan)  # avoid division by zero
+    df['Williams'] = -100 * (high14 - df['close']) / Williams_denom
     df['Williams'] = df['Williams'].fillna(-50)
 
     ema12 = df['close'].ewm(span=12).mean()
@@ -58,7 +83,9 @@ def calc_indicators(df):
     tp = (df['high'] + df['low'] + df['close']) / 3
     sma = tp.rolling(14).mean()
     mad = tp.rolling(14).apply(lambda x: abs(x - x.mean()).mean())
-    df['CCI'] = (tp - sma) / (0.015 * mad)
+    CCI_denom = 0.015 * mad
+    CCI_denom = CCI_denom.replace(0, np.nan)  # avoid division by zero
+    df['CCI'] = (tp - sma) / CCI_denom
     df['CCI'] = df['CCI'].fillna(0)
 
     return df
@@ -96,7 +123,8 @@ def load_ohlc_for_period(target_date_str):
                 df = pd.read_csv(f, low_memory=False, dtype={'code': str})
                 df['code'] = df['code'].astype(str).str.strip()
                 dfs.append(df)
-            except:
+            except Exception:
+                print(f"  讀取失敗: {f}")
                 continue
 
     if not dfs:
@@ -152,8 +180,8 @@ def generate_summary(date_str=None):
                     try:
                         if cond(row, prev):
                             signal_list.append(ind)
-                    except:
-                        pass
+                    except Exception:
+                        print(f"  指標計算失敗: {ind} for {code}")
 
                 if signal_list:
                     rsi = row.get('RSI', 50)

@@ -73,14 +73,15 @@ def fetch_stock_cached(code, period='1y'):
     for f in files:
         try:
             df = pd.read_csv(f, low_memory=False, dtype={'code': str})
-        except:
+        except Exception:
+            print(f"讀取失敗: {f}")
             continue
         stock_df = df[df['code'].astype(str).str.lstrip('0') == code_str]
         if not stock_df.empty:
             stock_df = stock_df.copy()
             stock_df['Date'] = pd.to_datetime(stock_df['date'].astype(str), format='%Y%m%d')
             dfs.append(stock_df)
-    
+
     if not dfs:
         return pd.DataFrame()
     
@@ -208,6 +209,8 @@ def detect_sentiment(title):
 
 def calc_indicators(df):
     df = df.copy()
+    # 移除 close 為 NaN 的列（避免 rolling mean 全域炸掉）
+    df = df.dropna(subset=['close', 'open', 'high', 'low'])
     df['MA20'] = df["close"].rolling(20).mean()
     df['MA60'] = df["close"].rolling(60).mean()
     df['MA200'] = df["close"].rolling(200).mean()
@@ -226,7 +229,9 @@ def calc_indicators(df):
     delta = df["close"].diff()
     gain = delta.where(delta > 0, 0).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    df['RSI'] = 100 - (100 / (1 + gain / loss))
+    rs = gain / loss.replace(0, np.nan)  # avoid division by zero
+    df['RSI'] = 100 - (100 / (1 + rs))
+    df['RSI'] = df['RSI'].fillna(50)
     
     ema12 = df["close"].ewm(span=12).mean()
     ema26 = df["close"].ewm(span=26).mean()
@@ -235,12 +240,18 @@ def calc_indicators(df):
     
     high14 = df["high"].rolling(14).max()
     low14 = df["low"].rolling(14).min()
-    df['Williams'] = -100 * (high14 - df["close"]) / (high14 - low14)
+    Williams_denom = high14 - low14
+    Williams_denom = Williams_denom.replace(0, np.nan)  # avoid division by zero
+    df['Williams'] = -100 * (high14 - df["close"]) / Williams_denom
+    df['Williams'] = df['Williams'].fillna(-50)
     
     tp = (df["high"] + df["low"] + df["close"]) / 3
     sma_tp = tp.rolling(14).mean()
     mad = tp.rolling(14).apply(lambda x: abs(x - x.mean()).mean())
-    df['CCI'] = (tp - sma_tp) / (0.015 * mad)
+    CCI_denom = 0.015 * mad
+    CCI_denom = CCI_denom.replace(0, np.nan)  # avoid division by zero
+    df['CCI'] = (tp - sma_tp) / CCI_denom
+    df['CCI'] = df['CCI'].fillna(0)
     
     df['OBV'] = (np.sign(df["close"].diff()) * df["volume"]).cumsum()
     
@@ -248,17 +259,16 @@ def calc_indicators(df):
     tr2 = (df["high"] - df["close"].shift()).abs()
     tr3 = (df["low"] - df["close"].shift()).abs()
     df['ATR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean()
-    
+
     # ── DMI 趨勢指標 ────────────────────────────────────────────
     # +DI (上升方向指標), -DI (下降方向指標), ADX (趨勢強度)
     high_diff = df['high'].diff()
     low_diff = -df['low'].diff()
     plus_dm = high_diff.where((high_diff > low_diff) & (high_diff > 0), 0)
     minus_dm = low_diff.where((low_diff > high_diff) & (low_diff > 0), 0)
-    
-    atr_dmi = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean()
-    df['+DI'] = 100 * (plus_dm.rolling(14).sum() / atr_dmi)
-    df['-DI'] = 100 * (minus_dm.rolling(14).sum() / atr_dmi)
+
+    df['+DI'] = 100 * (plus_dm.rolling(14).sum() / df['ATR'])
+    df['-DI'] = 100 * (minus_dm.rolling(14).sum() / df['ATR'])
     dx = 100 * abs(df['+DI'] - df['-DI']) / (df['+DI'] + df['-DI'])
     df['ADX'] = dx.rolling(14).mean()
     
@@ -333,6 +343,10 @@ def recognize_candlestick_patterns(df):
 # 各指標獨立的訊號檢查
 def check_each_indicator(df, indicators):
     """回傳每個指標的買點訊號"""
+    # Precompute rolling max for OBV and ATR to avoid O(n²) index lookup
+    obv_rolling_max = df['OBV'].rolling(20).max()
+    atr_rolling_max = df['ATR'].rolling(20).max()
+
     conditions = {
         'KD': lambda row, prev: (prev['K'] < prev['D']) & (row['K'] > row['D']) & (row['K'] < 30),
         'RSI': lambda row, prev: (prev['RSI'] < 30) & (row['RSI'] >= 30),
@@ -340,13 +354,13 @@ def check_each_indicator(df, indicators):
         'Williams': lambda row, prev: (prev['Williams'] < -80) & (row['Williams'] >= -80),
         'MA': lambda row, prev: (prev['MA20'] < prev['MA60']) & (row['MA20'] > row['MA60']),
         'CCI': lambda row, prev: (prev['CCI'] < -80) & (row['CCI'] >= -80),
-        'OBV': lambda row, prev: row['OBV'] > df['OBV'].rolling(20).max().iloc[df.index.get_loc(row.name)],  # OBV 突破20日新高
+        'OBV': lambda row, prev, idx: row['OBV'] > obv_rolling_max.iloc[idx],  # OBV 突破20日新高
         'MA200': lambda row, prev: (prev['close'] <= prev['MA200']) & (row['close'] > row['MA200']),
-        'ATR': lambda row, prev: row['ATR'] > df['ATR'].rolling(20).max().iloc[df.index.get_loc(row.name)],  # ATR 突破20日新高
+        'ATR': lambda row, prev, idx: row['ATR'] > atr_rolling_max.iloc[idx],  # ATR 突破20日新高
         # DMI 趨勢指標：+DI 突破 -DI 且 ADX 上揚
         'DMI': lambda row, prev: (prev['+DI'] <= prev['-DI']) & (row['+DI'] > row['-DI']) & (row['ADX'] > 20),
     }
-    
+
     colors = {
         'KD': '#9B59B6',     # 紫
         'RSI': '#3498DB',    # 藍
@@ -359,9 +373,9 @@ def check_each_indicator(df, indicators):
         'ATR': '#FF9800',     # 橘
         'DMI': '#9C27B0',    # 紫色
     }
-    
+
     result = {}
-    
+
     for ind in indicators:
         if ind not in conditions:
             continue
@@ -370,19 +384,23 @@ def check_each_indicator(df, indicators):
             row = df.iloc[idx]
             prev = df.iloc[idx-1]
             try:
-                if conditions[ind](row, prev):
-                    signals.append(idx)
-            except:
+                if ind in ('OBV', 'ATR'):
+                    if conditions[ind](row, prev, idx):
+                        signals.append(idx)
+                else:
+                    if conditions[ind](row, prev):
+                        signals.append(idx)
+            except Exception:
                 pass
         result[ind] = signals
-    
+
     # 找出 5 天內有多個指標訊號的日期
     all_signals = []
     for ind, sigs in result.items():
         for s in sigs:
             all_signals.append(s)
     all_signals = sorted(set(all_signals))
-    
+
     # 聚類：5天內的訊號歸為一組
     clusters = []
     if all_signals:
@@ -396,7 +414,7 @@ def check_each_indicator(df, indicators):
                 current_cluster = [all_signals[i]]
         if len(current_cluster) >= 2:
             clusters.append(current_cluster)
-    
+
     return result, colors, clusters
 
 def plot_chart(df, indicator_signals, colors, clusters=[], legal_df=None, indicators=None, patterns=None, show_candlestick=True, money_dates=None):
@@ -612,7 +630,7 @@ def plot_chart(df, indicator_signals, colors, clusters=[], legal_df=None, indica
 st.title("📈 AI 股市 V4.xx 策略")
 
 if "stock_id" not in st.session_state:
-    st.session_state["stock_id"] = "2317"
+    st.session_state["stock_id"] = "2454"
 stock_id = st.sidebar.text_input("股票代號", value=st.session_state["stock_id"])
 
 # 顯示股票名稱
@@ -1006,7 +1024,7 @@ if stock_id:
                                 label = f"{name} ({code})"
                                 scol1, scol2, scol3, scol4 = st.columns([2, 1, 1, 4])
                                 with scol1:
-                                    if st.button(label, key=f"m100_{sel_date}_{code}"):
+                                    if st.button(label, key=f"m100_{sel_date}_{code}_{row.name}"):
                                         st.session_state["stock_id"] = code
                                         st.rerun()
                                 with scol2:
@@ -1038,14 +1056,14 @@ def load_signals_by_date(date_str, prefix="signal_t86_"):
     file_path = f"{SIGNALS_DIR}/{prefix}{date_str}.csv"
     try:
         df = pd.read_csv(file_path)
-        active = pd.read_csv(ACTIVE_FILE)
-        name_dict = active.set_index("code")["name"].to_dict()
+        active = pd.read_csv(ACTIVE_FILE, dtype={'code': str})
+        name_dict = active.set_index('code')['name'].to_dict()
         # Keep existing name if present, otherwise map from active_stocks
         if "name" not in df.columns:
-            df["name"] = df["code"].map(name_dict)
+            df["name"] = df["code"].astype(str).str.strip().map(name_dict)
         else:
             # Fill missing names from active_stocks
-            df["name"] = df.apply(lambda x: x["name"] if pd.notna(x.get("name")) else name_dict.get(str(x["code"]), ""), axis=1)
+            df["name"] = df.apply(lambda x: x["name"] if pd.notna(x.get("name")) else name_dict.get(str(x["code"]).strip(), ""), axis=1)
         return df
     except:
         return pd.DataFrame()
