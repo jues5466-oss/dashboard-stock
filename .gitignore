@@ -34,4 +34,5 @@ scripts/update_money100_csv.py
 scripts/money100_*.py
 scripts/extract_*.py
 scripts/read_*.py
-scripts/finalize_money100.py
+# finalize_money100.py 已於 2026/10/29 改用 get_secret() 讀 webhook，
+# 不再含憑證 → 取消忽略，讓截字修正有版本保護
